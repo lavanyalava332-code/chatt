@@ -1,0 +1,39 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using ModelContextProtocol;
+using System.IO;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ✅ Register MCP server + tools
+builder.Services.AddMcpServer().WithToolsFromAssembly();
+
+// ✅ DB connection string (Postgres) as singleton
+var connectionString = Environment.GetEnvironmentVariable("LIGHTBULBS_DB_CONNECTION")
+    ?? "Host=localhost;Username=postgres;Password=postgres;Database=lightbulbs";
+builder.Services.AddSingleton(connectionString);
+
+var app = builder.Build();
+
+// ⚡ Initialize LightbulbTools with connection string
+LightbulbTools.SetConnectionString(connectionString);
+
+// Example HTTP endpoints for manual testing
+app.MapGet("/lights", () => LightbulbTools.GetLights());
+app.MapPost("/lights/{id}/state", (int id, [FromBody] bool isOn) => LightbulbTools.ChangeState(id, isOn));
+
+// Expose tool metadata
+app.MapGet("/tools", () => new[] { "GetLights", "ChangeState" });
+
+// Expose MCP endpoint (used by Semantic Kernel)
+app.MapPost("/mcp", async (HttpContext context) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var requestBody = await reader.ReadToEndAsync();
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsync(requestBody);
+});
+
+await app.RunAsync();
